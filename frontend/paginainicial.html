@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SPP</title>
+    <style>
+        :root {
+            --primary-color: #1a365d;
+            --secondary-color: #2b6cb0;
+            --accent-color: #3182ce;
+            --bg-color: #f7fafc;
+            --text-color: #2d3748;
+            --gray-light: #edf2f7;
+            --border-color: #e2e8f0;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+        }
+
+        header {
+            background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+            color: white;
+            padding: 2rem 1rem;
+            text-align: center;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+
+        header h1 {
+            font-size: 5.2rem;
+            margin-bottom: 0.5rem;
+        }
+
+        header p {
+            font-size: 3rem;
+            opacity: 0.9;
+        }
+
+        .search-container {
+            max-width: 700px;
+            margin: 2rem auto 0 auto;
+            position: relative;
+            padding: 0 1rem;
+            width: 100%;
+        }
+
+        .search-box {
+            display: flex;
+            background: white;
+            border-radius: 50px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+            overflow: hidden;
+            border: 2px solid var(--border-color);
+            border-top: 5px;
+            transition: all 0.3s ease;
+        }
+
+        .search-box:focus-within {
+            border-color: var(--accent-color);
+            box-shadow: 0 10px 25px rgba(49,130,206,0.2);
+        }
+
+        .search-input {
+            flex: 1;
+            padding: 15px 25px;
+            border: none;
+            outline: none;
+            font-size: 1.1rem;
+            color: var(--text-color);
+        }
+
+        .search-btn {
+            background-color: var(--accent-color);
+            border: none;
+            color: white;
+            padding: 0 25px;
+            cursor: pointer;
+            font-size: 1.2rem;
+            transition: background 0.2s;
+        }
+
+        .search-btn:hover {
+            background-color: var(--secondary-color);
+        }
+
+        /* Sugestões e Histórico */
+        .suggestions-dropdown {
+            position: absolute;
+            top: 65px;
+            left: 20px;
+            right: 20px;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            z-index: 10;
+            display: none;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .suggestion-item {
+            padding: 10px 20px;
+            cursor: pointer;
+            font-size: 0.95rem;
+            border-bottom: 1px solid var(--gray-light);
+        }
+
+        .suggestion-item:hover {
+            background-color: var(--gray-light);
+        }
+
+        /* Filtros SERP */
+        .filters-section {
+            width: 100%;
+            max-width: none;
+            margin: 2rem 0 1rem 0;
+            padding: 1rem;
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            background-color: var(--secondary-color);
+        }
+
+        .filter-group {
+            display: flex;
+            flex-direction: column;
+            font-size: 0.85rem;
+            font-weight: bold;
+            color: white;
+        }
+
+        .filter-group select {
+            padding: 8px 12px;
+            border-radius: 6px;
+            border: 1px solid var(--border-color);
+            background: white;
+            margin-top: 4px;
+            outline: none;
+        }
+
+        /* Resultados da SERP */
+        .serp-container {
+            max-width: 800px;
+            margin: 0 auto 3rem auto;
+            padding: 0 1rem;
+            flex: 1;
+            width: 100%;
+        }
+
+        .serp-meta {
+            font-size: 0.9rem;
+            color: #718096;
+            margin-bottom: 1rem;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 0.5rem;
+        }
+
+        .result-item {
+            background: white;
+            padding: 1.25rem;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .result-content {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) 128px;
+            gap: 1rem;
+            align-items: start;
+        }
+
+        .result-image {
+            width: 128px;
+            height: 96px;
+            object-fit: cover;
+            border-radius: 6px;
+            background-color: var(--gray-light);
+        }
+
+        .result-item:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+
+        .result-url {
+            font-size: 0.85rem;
+            color: #2f855a;
+            text-decoration: none;
+            display: inline-block;
+            margin-bottom: 0.25s;
+            word-break: break-all;
+        }
+
+        .result-preview-image {
+            width: 128px;
+            height: 128px;
+            object-fit: contain;
+            vertical-align: middle;
+            margin-right: 8px;
+        }
+
+        .result-title {
+            font-size: 1.2rem;
+            color: var(--secondary-color);
+            text-decoration: none;
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: 600;
+        }
+
+        .result-title:hover {
+            text-decoration: underline;
+        }
+
+        .result-snippet {
+            font-size: 0.95rem;
+            color: #4a5568;
+            line-height: 1.5;
+        }
+
+        .result-tags {
+            margin-top: 0.75rem;
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .tag {
+            background-color: var(--gray-light);
+            font-size: 0.75rem;
+            padding: 3px 8px;
+            border-radius: 4px;
+            color: #4a5568;
+            text-transform: uppercase;
+        }
+
+        .tag-views {
+            background-color: #ebf8ff;
+            color: var(--secondary-color);
+            font-weight: 700;
+            text-transform: none;
+        }
+
+        /* Botão "Saiba mais" e resumo da notícia */
+        .btn-saiba-mais {
+            margin-top: 0.75rem;
+            background-color: transparent;
+            border: 1px solid var(--accent-color);
+            color: var(--accent-color);
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: background 0.2s, color 0.2s;
+        }
+
+        .btn-saiba-mais:hover {
+            background-color: var(--accent-color);
+            color: white;
+        }
+
+        .btn-saiba-mais:disabled {
+            opacity: 0.6;
+            cursor: default;
+        }
+
+        .resumo-container {
+            display: none;
+            margin-top: 0.75rem;
+            padding-top: 0.75rem;
+            border-top: 1px solid var(--border-color);
+            font-size: 0.9rem;
+            color: var(--text-color);
+            line-height: 1.5;
+        }
+
+        footer {
+            background-color: #2d3748;
+            color: white;
+            text-align: center;
+            padding: 1.5rem;
+            font-size: 0.9rem;
+            margin-top: auto;
+        }
+
+        /* Responsividade para Celulares */
+        @media (max-width: 600px) {
+            header h1 {
+                font-size: 1.7rem;
+            }
+            .filters-section {
+                flex-direction: column;
+                align-items: stretch;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>SPPB</h1>
+        <p>Site de pesquisa política brasileira</p>
+    </header>
+
+    <div class="search-container">
+        <div class="search-box">
+            <input type="text" id="searchInput" class="search-input" placeholder="Pesquisar por políticos, partidos, orçamentos..." autocomplete="off">
+            <button id="searchBtn" class="search-btn">Pesquisar</button>
+        </div>
+        <div id="suggestionsDropdown" class="suggestions-dropdown"></div>
+    </div>
+
+    <div class="filters-section">
+        <div class="filter-group">
+            <label for="filterCategoria">Cargo</label>
+            <select id="filterCategoria">
+                <option value="todos">Todos</option>
+                <option value="presidente">Presidente</option>
+                <option value="deputado">Deputado</option>
+            </select>
+        </div>
+        <div class="filter-group">
+            <label for="filterPartido">Partido Político</label>
+            <select id="filterPartido">
+                <option value="todos">Todos</option>
+                <option value="pt">pt</option>
+                <option value="pl">pl</option>
+                <option value="missão">missão</option>
+                <option value="mdb">mdb</option>
+                <option value="avante">avante</option>
+            </select>
+        </div>
+        <div class="filter-group">
+            <label for="filterOrdenacao">Ordenar por</label>
+            <select id="filterOrdenacao">
+                <option value="relevancia">Relevância</option>
+                <option value="data">Data mais recente</option>
+                <option value="data_antiga">Mais antigas</option>
+            </select>
+        </div>
+    </div>
+
+    <main class="serp-container">
+        <div id="serpMeta" class="serp-meta">Carregando informações do banco de dados...</div>
+        <div id="resultsList">
+            <!-- Os resultados aparecerão aqui dinamicamente -->
+        </div>
+    </main>
+
+    <footer>
+        &copy; 2026 SPP Brasil. Todos os direitos reservados. Integrado com Supabase & Node.js.
+    </footer>
+
+    <script>
+        const searchInput = document.getElementById('searchInput');
+        const searchBtn = document.getElementById('searchBtn');
+        const resultsList = document.getElementById('resultsList');
+        const serpMeta = document.getElementById('serpMeta');
+        const filterCategoria = document.getElementById('filterCategoria');
+        const filterPartido = document.getElementById('filterPartido');
+        const filterOrdenacao = document.getElementById('filterOrdenacao');
+        const suggestionsDropdown = document.getElementById('suggestionsDropdown');
+
+        // Histórico local recente
+        let searchHistory = JSON.parse(localStorage.getItem('polis_history')) || ['Presidente', 'Deputado', 'Orçamento'];
+
+        function showSuggestions(filter = '') {
+            suggestionsDropdown.innerHTML = '';
+            const filtered = searchHistory.filter(item => item.toLowerCase().includes(filter.toLowerCase()));
+            
+            if (filtered.length === 0) {
+                suggestionsDropdown.style.display = 'none';
+                return;
+            }
+
+            filtered.forEach(text => {
+                const div = document.createElement('div');
+                div.className = 'suggestion-item';
+                div.textContent = ` Histórico: ${text}`;
+                div.onclick = () => {
+                    searchInput.value = text;
+                    suggestionsDropdown.style.display = 'none';
+                    realizarBusca();
+                };
+                suggestionsDropdown.appendChild(div);
+            });
+            suggestionsDropdown.style.display = 'block';
+        }
+
+        searchInput.addEventListener('input', (e) => {
+            showSuggestions(e.target.value);
+        });
+
+        searchInput.addEventListener('focus', () => {
+            showSuggestions(searchInput.value);
+        });
+
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('.search-container')) {
+                suggestionsDropdown.style.display = 'none';
+            }
+        });
+
+        async function realizarBusca() {
+            const query = searchInput.value.trim();
+            const categoria = filterCategoria.value;
+            const partido = filterPartido.value;
+            const ordenacao = filterOrdenacao.value;
+
+            if (query && !searchHistory.includes(query)) {
+                searchHistory.unshift(query);
+                if (searchHistory.length > 5) searchHistory.pop();
+                localStorage.setItem('polis_history', JSON.stringify(searchHistory));
+            }
+
+            serpMeta.textContent = "Buscando dados políticos...";
+            resultsList.innerHTML = "";
+
+            try {
+                const response = await fetch(`/api/search?q=${encodeURIComponent(query)}&categoria=${categoria}&partido=${partido}&ordenacao=${ordenacao}`);
+                const data = await response.json();
+
+                if (data.error) {
+                    serpMeta.textContent = "Erro ao carregar os resultados.";
+                    return;
+                }
+
+                serpMeta.textContent = `${data.total} notícias encontradas (${data.tempoBusca})`;
+
+                if (data.resultados.length === 0) {
+                    resultsList.innerHTML = `<p style="text-align: center; color: #718096; padding: 2rem;">Nenhum documento político encontrado com esses critérios.</p>`;
+                    return;
+                }
+
+                data.resultados.forEach(item => {
+                    const div = document.createElement('div');
+                    div.className = 'result-item';
+                    div.dataset.id = item.id;
+                    div.innerHTML = `
+                        <div class="result-content">
+                            <div>
+                                <a href="${item.url}" target="_blank" rel="noopener noreferrer" class="result-title">${item.titulo}</a>
+                                <p class="result-snippet">${item.snippet}</p>
+                            </div>
+                            ${item.imagem_url ? `<img src="${item.imagem_url}" alt="Imagem da notícia" class="result-image" loading="lazy">` : ''}
+                        </div>
+                        <div class="result-tags">
+                            <span class="tag">${item.categoria || 'geral'}</span>
+                            <span class="tag">${item.partido || 'indefinido'}</span>
+                            <span class="tag">${item.data_publicacao || ''}</span>
+                            <span class="tag tag-views">👁 ${Number(item.visualizacoes || 0)} visualizações</span>
+                        </div>
+                        <button class="btn-saiba-mais">Saiba mais</button>
+                        <div class="resumo-container"></div>
+                    `;
+                    resultsList.appendChild(div);
+                });
+
+            } catch (err) {
+                console.error(err);
+                serpMeta.textContent = "Erro de conexão com o servidor.";
+            }
+        }
+
+        searchBtn.addEventListener('click', realizarBusca);
+        searchInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                suggestionsDropdown.style.display = 'none';
+                realizarBusca();
+            }
+        });
+
+        filterCategoria.addEventListener('change', realizarBusca);
+        filterPartido.addEventListener('change', realizarBusca);
+        filterOrdenacao.addEventListener('change', realizarBusca);
+
+        async function registrarVisualizacao(id, contadorElemento) {
+            if (!id) return;
+
+            const atualizarUI = (total) => {
+                if (contadorElemento) {
+                    contadorElemento.textContent = `👁 ${Number(total || 0)} visualizações`;
+                }
+            };
+
+            const enviar = () => {
+                if (navigator.sendBeacon) {
+                    const payload = JSON.stringify({});
+                    const ok = navigator.sendBeacon(`/api/noticias/${id}/visualizar`, payload);
+                    if (ok) return Promise.resolve({ visualizacoes: Number(contadorElemento?.textContent.match(/\d+/)?.[0] || 0) + 1 });
+                }
+
+                return fetch(`/api/noticias/${id}/visualizar`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({})
+                }).then((response) => response.ok ? response.json() : null);
+            };
+
+            try {
+                const dados = await enviar();
+                if (dados && typeof dados.visualizacoes !== 'undefined') {
+                    atualizarUI(dados.visualizacoes);
+                    return;
+                }
+
+                const atual = Number(contadorElemento?.textContent.match(/\d+/)?.[0] || 0);
+                atualizarUI(atual + 1);
+            } catch (err) {
+                console.warn('Não foi possível registrar a visualização:', err);
+                const atual = Number(contadorElemento?.textContent.match(/\d+/)?.[0] || 0);
+                atualizarUI(atual + 1);
+            }
+        }
+
+        document.addEventListener('click', async (e) => {
+            const linkTitulo = e.target.closest('.result-title');
+            const item = e.target.closest('.result-item');
+
+            if (linkTitulo && item) {
+                const contadorElemento = item.querySelector('.tag-views');
+                registrarVisualizacao(item.dataset.id, contadorElemento);
+            }
+
+            if (!e.target.classList.contains('btn-saiba-mais')) return;
+
+            const botao = e.target;
+            const noticiaItem = botao.closest('.result-item');
+            const id = noticiaItem.dataset.id;
+            const resumoDiv = noticiaItem.querySelector('.resumo-container');
+            const contadorElemento = noticiaItem.querySelector('.tag-views');
+
+            if (resumoDiv.style.display === 'block') {
+                resumoDiv.style.display = 'none';
+                botao.textContent = 'Saiba mais';
+                return;
+            }
+
+            botao.disabled = true;
+            botao.textContent = 'Carregando...';
+
+            try {
+                registrarVisualizacao(id, contadorElemento);
+
+                const resp = await fetch(`/api/noticias/${id}/resumo`);
+                const dados = await resp.json();
+
+                resumoDiv.textContent = resp.ok
+                    ? dados.resumo
+                    : (dados.erro || 'Não foi possível carregar o resumo.');
+
+                resumoDiv.style.display = 'block';
+                botao.textContent = 'Ocultar';
+            } catch (err) {
+                resumoDiv.textContent = 'Erro ao carregar o resumo.';
+                resumoDiv.style.display = 'block';
+            } finally {
+                botao.disabled = false;
+            }
+        });
+
+        // Exibe os registros do banco ao abrir a página.
+        realizarBusca();
+    </script>
+</body>
+</html>
