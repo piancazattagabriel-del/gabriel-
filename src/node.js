@@ -76,10 +76,37 @@ async function incrementarVisualizacao(noticiaId) {
         console.warn(`Fallback de visualização para ${noticiaId}:`, err.message);
     }
 
-    const totalAtual = visualizacaoEmMemoria.get(chave) ?? 0;
-    const novoTotal = totalAtual + 1;
-    visualizacaoEmMemoria.set(chave, novoTotal);
-    return novoTotal;
+    // Mantém a persistência mesmo quando a função RPC ainda não foi criada.
+    try {
+        const { data: noticia, error: selectError } = await supabase
+            .from('pesquisas_politicas')
+            .select('visualizacoes')
+            .eq('id', noticiaId)
+            .single();
+
+        if (!selectError && noticia) {
+            const totalAtual = Number(noticia.visualizacoes) || 0;
+            const novoTotal = totalAtual + 1;
+            const { error: updateError } = await supabase
+                .from('pesquisas_politicas')
+                .update({ visualizacoes: novoTotal })
+                .eq('id', noticiaId);
+
+            if (!updateError) {
+                visualizacaoEmMemoria.set(chave, novoTotal);
+                return novoTotal;
+            }
+
+            console.warn(`Não foi possível salvar visualização de ${noticiaId}:`, updateError.message);
+        }
+    } catch (err) {
+        console.warn(`Fallback de banco indisponível para ${noticiaId}:`, err.message);
+    }
+
+    const totalEmMemoria = visualizacaoEmMemoria.get(chave) ?? 0;
+    const novoTotalEmMemoria = totalEmMemoria + 1;
+    visualizacaoEmMemoria.set(chave, novoTotalEmMemoria);
+    return novoTotalEmMemoria;
 }
 
 // Feed já pré-filtrado pelo Google News para política + Espírito Santo.
