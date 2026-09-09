@@ -3,6 +3,7 @@ const cors = require('cors');
 const { createClient } = require('@supabase/supabase-js');
 const axios = require('axios');
 const cheerio = require('cheerio');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '../backend/.env') });
  
@@ -26,88 +27,12 @@ app.get('/', (req, res) => {
 const supabaseUrl = requiredEnv('SUPABASE_URL');
 const supabaseKey = requiredEnv('SUPABASE_SERVICE_ROLE_KEY');
 const supabase = createClient(supabaseUrl, supabaseKey);
- 
-const PORT = process.env.PORT || 3001;
-const visualizacaoEmMemoria = new Map();
+const gemini = process.env.GEMINI_API_KEY
+    ? new GoogleGenerativeAI(process.env.GEMINI_API_KEY)
+    : null;
+const geminiModel = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
 
-async function getVisualizacaoAtual(noticiaId) {
-    const chave = String(noticiaId);
-    const atualEmMemoria = visualizacaoEmMemoria.get(chave) ?? 0;
-
-    try {
-        const { data, error } = await supabase
-            .from('pesquisas_politicas')
-            .select('visualizacoes')
-            .eq('id', noticiaId)
-            .single();
-
-        if (!error && data && typeof data.visualizacoes === 'number') {
-            visualizacaoEmMemoria.set(chave, data.visualizacoes);
-            return data.visualizacoes;
-        }
-    } catch (err) {
-        // Fallback silencioso quando a coluna ainda não existe no banco.
-    }
-
-    return atualEmMemoria;
-}
-
-async function incrementarVisualizacao(noticiaId) {
-    const chave = String(noticiaId);
-
-    try {
-        const { data, error } = await supabase.rpc('incrementar_visualizacoes', {
-            noticia_id: noticiaId
-        });
-
-        if (!error) {
-            const novoTotal = Array.isArray(data) ? data[0] : data;
-            if (novoTotal !== null && novoTotal !== undefined) {
-                const total = Number(novoTotal);
-                visualizacaoEmMemoria.set(chave, total);
-                return total;
-            }
-        }
-
-        if (error) {
-            console.warn(`Fallback de visualização para ${noticiaId}:`, error.message);
-        }
-    } catch (err) {
-        console.warn(`Fallback de visualização para ${noticiaId}:`, err.message);
-    }
-
-    // Mantém a persistência mesmo quando a função RPC ainda não foi criada.
-    try {
-        const { data: noticia, error: selectError } = await supabase
-            .from('pesquisas_politicas')
-            .select('visualizacoes')
-            .eq('id', noticiaId)
-            .single();
-
-        if (!selectError && noticia) {
-            const totalAtual = Number(noticia.visualizacoes) || 0;
-            const novoTotal = totalAtual + 1;
-            const { error: updateError } = await supabase
-                .from('pesquisas_politicas')
-                .update({ visualizacoes: novoTotal })
-                .eq('id', noticiaId);
-
-            if (!updateError) {
-                visualizacaoEmMemoria.set(chave, novoTotal);
-                return novoTotal;
-            }
-
-            console.warn(`Não foi possível salvar visualização de ${noticiaId}:`, updateError.message);
-        }
-    } catch (err) {
-        console.warn(`Fallback de banco indisponível para ${noticiaId}:`, err.message);
-    }
-
-    const totalEmMemoria = visualizacaoEmMemoria.get(chave) ?? 0;
-    const novoTotalEmMemoria = totalEmMemoria + 1;
-    visualizacaoEmMemoria.set(chave, novoTotalEmMemoria);
-    return novoTotalEmMemoria;
-}
+const PORT = process.env.PORT || 3010;
 
 // Feed já pré-filtrado pelo Google News para política + Espírito Santo.
 // Isso reduz o volume de itens irrelevantes antes mesmo do filtro local.
@@ -318,6 +243,22 @@ async function extractArticleSummary(url) {
         return null;
     }
 }
+
+async function generateSummaryWithAI(titulo, conteudo) {
+    if (!gemini) return null;
+
+    try {
+        const model = gemini.getGenerativeModel({ model: geminiModel });
+        const resposta = await model.generateContent(
+            `Resuma a notícia abaixo em português brasileiro. Seja objetivo, neutro, use no máximo 3 frases e não invente informações.\n\nTítulo: ${titulo}\n\nConteúdo: ${conteudo}`
+        );
+
+        return resposta.response.text().trim() || null;
+    } catch (error) {
+        console.warn(`Não foi possível gerar resumo com Gemini: ${error.message}`);
+        return null;
+    }
+}
  
 // ---------------------------------------------------------------------------
  
@@ -387,7 +328,11 @@ app.post('/api/ingest', async (req, res) => {
 // Rota da SERP (Search Engine Results Page) com Filtros e Busca Textual
 app.get('/api/search', async (req, res) => {
     const startTime = Date.now();
-    const { q = '', categoria = '', partido = '', ordenacao = 'relevancia' } = req.query;
+    const ordemSolicitada = req.query.ordenacao || 'data';
+    const ordenacao = ['data', 'data_antiga'].includes(ordemSolicitada) ? ordemSolicitada : 'data';
+    const limit = Math.max(1, Number(req.query.limit || 10));
+    const offset = Math.max(0, Number(req.query.offset || 0));
+    const { q = '', categoria = '', partido = '' } = req.query;
  
     try {
         let query = supabase
@@ -417,27 +362,25 @@ app.get('/api/search', async (req, res) => {
  
         if (error) throw error;
  
-        const data = [];
+        const filteredData = (fetchedData || []).filter((item) => {
+            const textoNoticia = `${item.titulo || ''} ${item.snippet || ''}`;
+            return isEspiritoSantoContent(textoNoticia);
+        });
 
-        for (const noticia of (fetchedData || [])
-            .filter((item) => {
-                const fullText = `${item.titulo || ''} ${item.snippet || ''}`;
-                return isPoliticalContent(fullText) && isEspiritoSantoContent(fullText);
-            })
-            .slice(0, 10)) {
-            data.push({
-                ...noticia,
-                visualizacoes: await getVisualizacaoAtual(noticia.id)
-            });
-        }
+        const total = filteredData.length;
+        const resultados = filteredData.slice(offset, offset + limit);
+        const hasMore = offset + resultados.length < total;
 
         const endTime = Date.now();
         const duration = (endTime - startTime) / 1000;
  
         res.json({
-            total: data.length,
+            total,
+            hasMore,
+            limit,
+            offset,
             tempoBusca: `${duration.toFixed(3)} segundos`,
-            resultados: data
+            resultados
         });
     } catch (err) {
         console.error(err);
@@ -454,7 +397,7 @@ app.get('/api/noticias/:id/resumo', async (req, res) => {
     try {
         const { data: noticia, error } = await supabase
             .from('pesquisas_politicas')
-            .select('id, url, resumo')
+            .select('id, url, titulo, snippet, resumo')
             .eq('id', id)
             .single();
  
@@ -466,11 +409,17 @@ app.get('/api/noticias/:id/resumo', async (req, res) => {
             return res.json({ resumo: noticia.resumo, origem: 'cache' });
         }
  
-        const resumo = await extractArticleSummary(noticia.url);
+        const resumoExtraido = await extractArticleSummary(noticia.url);
  
-        if (!resumo) {
+        if (!resumoExtraido) {
             return res.status(422).json({ erro: 'Não foi possível gerar um resumo para essa notícia' });
         }
+
+        const resumoIA = await generateSummaryWithAI(
+            noticia.titulo || '',
+            `${noticia.snippet || ''}\n${resumoExtraido}`
+        );
+        const resumo = resumoIA || resumoExtraido;
  
         const { error: updateError } = await supabase
             .from('pesquisas_politicas')
@@ -479,30 +428,10 @@ app.get('/api/noticias/:id/resumo', async (req, res) => {
  
         if (updateError) throw updateError;
  
-        res.json({ resumo, origem: 'site' });
+        res.json({ resumo, origem: resumoIA ? 'ia' : 'site' });
     } catch (err) {
         console.error('Erro ao gerar resumo:', err.message);
         res.status(500).json({ erro: 'Erro ao gerar resumo' });
-    }
-});
- 
-// ---------------------------------------------------------------------------
-// CONTADOR DE VISUALIZAÇÕES
-// ---------------------------------------------------------------------------
-// Chamada pelo frontend quando o usuário clica em uma notícia. Incrementa o
-// contador de visualizações direto no banco (via função RPC no Postgres,
-// veja migration.sql) para evitar condição de corrida quando várias pessoas
-// clicam ao mesmo tempo — em vez de ler o valor em JS, somar 1 e regravar,
-// o que poderia perder incrementos concorrentes.
-app.post('/api/noticias/:id/visualizar', async (req, res) => {
-    const { id } = req.params;
-
-    try {
-        const novoTotal = await incrementarVisualizacao(id);
-        res.json({ id, visualizacoes: novoTotal });
-    } catch (err) {
-        console.error('Erro ao registrar visualização:', err.message);
-        res.status(500).json({ erro: 'Erro ao registrar visualização' });
     }
 });
  
@@ -520,4 +449,3 @@ async function startServer() {
 }
  
 startServer();
- 

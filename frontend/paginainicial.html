@@ -232,6 +232,21 @@
             line-height: 1.5;
         }
 
+        .verification-warning {
+            display: inline-block;
+            margin: 0;
+            color: #975a16;
+            font-size: 0.78rem;
+            font-weight: 600;
+        }
+
+        .result-actions {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
         .result-tags {
             margin-top: 0.75rem;
             display: flex;
@@ -246,13 +261,6 @@
             border-radius: 4px;
             color: #4a5568;
             text-transform: uppercase;
-        }
-
-        .tag-views {
-            background-color: #ebf8ff;
-            color: var(--secondary-color);
-            font-weight: 700;
-            text-transform: none;
         }
 
         /* Botão "Saiba mais" e resumo da notícia */
@@ -274,6 +282,28 @@
         }
 
         .btn-saiba-mais:disabled {
+            opacity: 0.6;
+            cursor: default;
+        }
+
+        .btn-mais-noticias {
+            display: block;
+            margin: 1.5rem auto 0 auto;
+            background-color: var(--accent-color);
+            color: white;
+            border: none;
+            border-radius: 999px;
+            padding: 0.8rem 1.5rem;
+            font-size: 0.95rem;
+            cursor: pointer;
+            transition: background 0.2s ease;
+        }
+
+        .btn-mais-noticias:hover {
+            background-color: var(--secondary-color);
+        }
+
+        .btn-mais-noticias:disabled {
             opacity: 0.6;
             cursor: default;
         }
@@ -347,8 +377,7 @@
         <div class="filter-group">
             <label for="filterOrdenacao">Ordenar por</label>
             <select id="filterOrdenacao">
-                <option value="relevancia">Relevância</option>
-                <option value="data">Data mais recente</option>
+                <option value="data" selected>Data mais recente</option>
                 <option value="data_antiga">Mais antigas</option>
             </select>
         </div>
@@ -359,6 +388,7 @@
         <div id="resultsList">
             <!-- Os resultados aparecerão aqui dinamicamente -->
         </div>
+        <button id="btnMaisNoticias" class="btn-mais-noticias" style="display: none;">Mais notícias</button>
     </main>
 
     <footer>
@@ -374,6 +404,11 @@
         const filterPartido = document.getElementById('filterPartido');
         const filterOrdenacao = document.getElementById('filterOrdenacao');
         const suggestionsDropdown = document.getElementById('suggestionsDropdown');
+        const btnMaisNoticias = document.getElementById('btnMaisNoticias');
+
+        const PAGE_SIZE = 10;
+        let offsetAtual = 0;
+        let hasMoreResults = false;
 
         // Histórico local recente
         let searchHistory = JSON.parse(localStorage.getItem('polis_history')) || ['Presidente', 'Deputado', 'Orçamento'];
@@ -401,6 +436,18 @@
             suggestionsDropdown.style.display = 'block';
         }
 
+        function avisoDeVerificacao(item) {
+            const status = String(item.status_verificacao || '').toLowerCase();
+            const naoVerificada = item.verificada === false ||
+                item.verificacao === false ||
+                item.veridica === false ||
+                ['nao_verificada', 'não verificada', 'nao verificado', 'não verificado'].includes(status);
+
+            return naoVerificada
+                ? '<span class="verification-warning">Não verídica: conteúdo não passou pela verificação.</span>'
+                : '';
+        }
+
         searchInput.addEventListener('input', (e) => {
             showSuggestions(e.target.value);
         });
@@ -415,6 +462,72 @@
             }
         });
 
+        async function carregarMaisNoticias() {
+            const query = searchInput.value.trim();
+            const categoria = filterCategoria.value;
+            const partido = filterPartido.value;
+            const ordenacao = filterOrdenacao.value;
+
+            btnMaisNoticias.disabled = true;
+            btnMaisNoticias.textContent = 'Carregando...';
+
+            try {
+                const response = await fetch(`/api/search?q=${encodeURIComponent(query)}&categoria=${categoria}&partido=${partido}&ordenacao=${ordenacao}&limit=${PAGE_SIZE}&offset=${offsetAtual}`);
+                const data = await response.json();
+
+                if (data.error) {
+                    serpMeta.textContent = 'Erro ao carregar os resultados.';
+                    return;
+                }
+
+                if (offsetAtual === 0) {
+                    resultsList.innerHTML = '';
+                }
+
+                data.resultados.forEach(item => {
+                    const div = document.createElement('div');
+                    div.className = 'result-item';
+                    div.dataset.id = item.id;
+                    div.innerHTML = `
+                        <div class="result-content">
+                            <div>
+                                <a href="${item.url}" target="_blank" rel="noopener noreferrer" class="result-title">${item.titulo}</a>
+                                <p class="result-snippet">${item.snippet}</p>
+                            </div>
+                            ${item.imagem_url ? `<img src="${item.imagem_url}" alt="Imagem da notícia" class="result-image" loading="lazy">` : ''}
+                        </div>
+                        <div class="result-tags">
+                            <span class="tag">${item.categoria || 'geral'}</span>
+                            <span class="tag">${item.partido || 'indefinido'}</span>
+                            <span class="tag">${item.data_publicacao || ''}</span>
+                        </div>
+                        <div class="result-actions">
+                            <button class="btn-saiba-mais">Saiba mais</button>
+                            ${avisoDeVerificacao(item)}
+                        </div>
+                        <div class="resumo-container"></div>
+                    `;
+                    resultsList.appendChild(div);
+                });
+
+                offsetAtual += data.resultados.length;
+                hasMoreResults = !!data.hasMore;
+                btnMaisNoticias.style.display = hasMoreResults ? 'block' : 'none';
+                btnMaisNoticias.textContent = hasMoreResults ? 'Mais notícias' : 'Sem mais notícias';
+                btnMaisNoticias.disabled = !hasMoreResults;
+                serpMeta.textContent = `${data.total} notícias encontradas (${data.tempoBusca})`;
+
+                if (data.resultados.length === 0) {
+                    resultsList.innerHTML = '<p style="text-align: center; color: #718096; padding: 2rem;">Nenhum documento político encontrado com esses critérios.</p>';
+                    btnMaisNoticias.style.display = 'none';
+                    return;
+                }
+            } catch (err) {
+                console.error(err);
+                serpMeta.textContent = 'Erro de conexão com o servidor.';
+            }
+        }
+
         async function realizarBusca() {
             const query = searchInput.value.trim();
             const categoria = filterCategoria.value;
@@ -427,22 +540,27 @@
                 localStorage.setItem('polis_history', JSON.stringify(searchHistory));
             }
 
-            serpMeta.textContent = "Buscando dados políticos...";
-            resultsList.innerHTML = "";
+            offsetAtual = 0;
+            hasMoreResults = false;
+            serpMeta.textContent = 'Buscando dados políticos...';
+            resultsList.innerHTML = '';
+            btnMaisNoticias.style.display = 'none';
+            btnMaisNoticias.disabled = true;
+            btnMaisNoticias.textContent = 'Carregando...';
 
             try {
-                const response = await fetch(`/api/search?q=${encodeURIComponent(query)}&categoria=${categoria}&partido=${partido}&ordenacao=${ordenacao}`);
+                const response = await fetch(`/api/search?q=${encodeURIComponent(query)}&categoria=${categoria}&partido=${partido}&ordenacao=${ordenacao}&limit=${PAGE_SIZE}&offset=${offsetAtual}`);
                 const data = await response.json();
 
                 if (data.error) {
-                    serpMeta.textContent = "Erro ao carregar os resultados.";
+                    serpMeta.textContent = 'Erro ao carregar os resultados.';
                     return;
                 }
 
-                serpMeta.textContent = `${data.total} notícias encontradas (${data.tempoBusca})`;
-
                 if (data.resultados.length === 0) {
-                    resultsList.innerHTML = `<p style="text-align: center; color: #718096; padding: 2rem;">Nenhum documento político encontrado com esses critérios.</p>`;
+                    resultsList.innerHTML = '<p style="text-align: center; color: #718096; padding: 2rem;">Nenhum documento político encontrado com esses critérios.</p>';
+                    serpMeta.textContent = '0 notícias encontradas';
+                    btnMaisNoticias.style.display = 'none';
                     return;
                 }
 
@@ -462,17 +580,25 @@
                             <span class="tag">${item.categoria || 'geral'}</span>
                             <span class="tag">${item.partido || 'indefinido'}</span>
                             <span class="tag">${item.data_publicacao || ''}</span>
-                            <span class="tag tag-views">👁 ${Number(item.visualizacoes || 0)} visualizações</span>
                         </div>
-                        <button class="btn-saiba-mais">Saiba mais</button>
+                        <div class="result-actions">
+                            <button class="btn-saiba-mais">Saiba mais</button>
+                            ${avisoDeVerificacao(item)}
+                        </div>
                         <div class="resumo-container"></div>
                     `;
                     resultsList.appendChild(div);
                 });
 
+                offsetAtual += data.resultados.length;
+                hasMoreResults = !!data.hasMore;
+                btnMaisNoticias.style.display = hasMoreResults ? 'block' : 'none';
+                btnMaisNoticias.textContent = hasMoreResults ? 'Mais notícias' : 'Sem mais notícias';
+                btnMaisNoticias.disabled = !hasMoreResults;
+                serpMeta.textContent = `${data.total} notícias encontradas (${data.tempoBusca})`;
             } catch (err) {
                 console.error(err);
-                serpMeta.textContent = "Erro de conexão com o servidor.";
+                serpMeta.textContent = 'Erro de conexão com o servidor.';
             }
         }
 
@@ -487,62 +613,15 @@
         filterCategoria.addEventListener('change', realizarBusca);
         filterPartido.addEventListener('change', realizarBusca);
         filterOrdenacao.addEventListener('change', realizarBusca);
-
-        async function registrarVisualizacao(id, contadorElemento) {
-            if (!id) return;
-
-            const atualizarUI = (total) => {
-                if (contadorElemento) {
-                    contadorElemento.textContent = `👁 ${Number(total || 0)} visualizações`;
-                }
-            };
-
-            const enviar = () => {
-                if (navigator.sendBeacon) {
-                    const payload = JSON.stringify({});
-                    const ok = navigator.sendBeacon(`/api/noticias/${id}/visualizar`, payload);
-                    if (ok) return Promise.resolve({ visualizacoes: Number(contadorElemento?.textContent.match(/\d+/)?.[0] || 0) + 1 });
-                }
-
-                return fetch(`/api/noticias/${id}/visualizar`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({})
-                }).then((response) => response.ok ? response.json() : null);
-            };
-
-            try {
-                const dados = await enviar();
-                if (dados && typeof dados.visualizacoes !== 'undefined') {
-                    atualizarUI(dados.visualizacoes);
-                    return;
-                }
-
-                const atual = Number(contadorElemento?.textContent.match(/\d+/)?.[0] || 0);
-                atualizarUI(atual + 1);
-            } catch (err) {
-                console.warn('Não foi possível registrar a visualização:', err);
-                const atual = Number(contadorElemento?.textContent.match(/\d+/)?.[0] || 0);
-                atualizarUI(atual + 1);
-            }
-        }
+        btnMaisNoticias.addEventListener('click', carregarMaisNoticias);
 
         document.addEventListener('click', async (e) => {
-            const linkTitulo = e.target.closest('.result-title');
-            const item = e.target.closest('.result-item');
-
-            if (linkTitulo && item) {
-                const contadorElemento = item.querySelector('.tag-views');
-                registrarVisualizacao(item.dataset.id, contadorElemento);
-            }
-
             if (!e.target.classList.contains('btn-saiba-mais')) return;
 
             const botao = e.target;
             const noticiaItem = botao.closest('.result-item');
             const id = noticiaItem.dataset.id;
             const resumoDiv = noticiaItem.querySelector('.resumo-container');
-            const contadorElemento = noticiaItem.querySelector('.tag-views');
 
             if (resumoDiv.style.display === 'block') {
                 resumoDiv.style.display = 'none';
@@ -554,8 +633,6 @@
             botao.textContent = 'Carregando...';
 
             try {
-                registrarVisualizacao(id, contadorElemento);
-
                 const resp = await fetch(`/api/noticias/${id}/resumo`);
                 const dados = await resp.json();
 
