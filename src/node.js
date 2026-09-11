@@ -30,7 +30,11 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 const gemini = process.env.GEMINI_API_KEY
     ? new GoogleGenerativeAI(process.env.GEMINI_API_KEY)
     : null;
-const geminiModel = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
+// Modelo usado por padrão. Google vai retirando modelos antigos (ex.: gemini-2.0-flash
+// hoje devolve 404), por isso além deste padrão, generateSummaryWithAI tenta uma lista
+// de respaldo antes de desistir.
+const GEMINI_MODELS_FALLBACK = ['gemini-3.6-flash', 'gemini-2.5-flash', 'gemini-2.5-flash-latest'];
+const geminiModel = process.env.GEMINI_MODEL || GEMINI_MODELS_FALLBACK[0];
 
 const PORT = process.env.PORT || 3010;
 
@@ -182,7 +186,7 @@ async function extractArticleImage(url) {
         // Resolve URLs relativas (ex.: "/imagens/foto.jpg") para absolutas
         return new URL(imageSrc, finalUrl).href;
     } catch (error) {
-        console.warn(`Não foi possível extrair imagem de ${url}: ${error.message}`);
+        console.error(`Não foi possível extrair imagem de ${url}: ${error.message}`);
         return null;
     }
 }
@@ -239,25 +243,34 @@ async function extractArticleSummary(url) {
         // Limita o tamanho para não guardar textos gigantes no banco
         return resumo.trim().slice(0, 600);
     } catch (error) {
-        console.warn(`Não foi possível extrair resumo de ${url}: ${error.message}`);
+        console.error(`Não foi possível extrair resumo de ${url}: ${error.message}`);
         return null;
     }
 }
 
 async function generateSummaryWithAI(titulo, conteudo) {
-    if (!gemini) return null;
+    if (!gemini || !conteudo) return null;
 
-    try {
-        const model = gemini.getGenerativeModel({ model: geminiModel });
-        const resposta = await model.generateContent(
-            `Resuma a notícia abaixo em português brasileiro. Seja objetivo, neutro, use no máximo 3 frases e não invente informações.\n\nTítulo: ${titulo}\n\nConteúdo: ${conteudo}`
-        );
+    // Lista de modelos a tentar: primeiro o configurado (GEMINI_MODEL ou o padrão)
+    // e depois uma lista de respaldo por si a Google retira o modelo.
+    const modelos = [...new Set([geminiModel, ...GEMINI_MODELS_FALLBACK])];
 
-        return resposta.response.text().trim() || null;
-    } catch (error) {
-        console.warn(`Não foi possível gerar resumo com Gemini: ${error.message}`);
-        return null;
+    for (const modelo of modelos) {
+        try {
+            const model = gemini.getGenerativeModel({ model: modelo });
+            const resposta = await model.generateContent(
+                `Resuma a notícia abaixo em português brasileiro. Seja objetivo, neutro, use no máximo 3 frases e não invente informações.\n\nTítulo: ${titulo}\n\nConteúdo: ${conteudo}`
+            );
+
+            const texto = (resposta?.response?.text?.() || '').trim();
+            if (texto) return texto;
+        } catch (error) {
+            console.error(`Gemini com modelo "${modelo}" falhou: ${error.message}`);
+        }
     }
+
+    console.error('Não foi possível gerar resumo com Gemini (todos os modelos falharam).');
+    return null;
 }
  
 // ---------------------------------------------------------------------------
