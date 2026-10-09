@@ -1,0 +1,11 @@
+{
+	"folders": [
+		{
+			"name": "gabriel--main",
+			"path": "../.."
+		}
+	],
+	"settings": {
+		"fiveServer.port": 5501
+	}
+}
